@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
 </head>
 
 <body>
@@ -89,6 +91,17 @@
             </section>
 
             <section id="sec-noitu-setup" class="page hidden">
+                <button class="btn-join" onclick="joinRoom()">VÀO PHÒNG</button>
+                <!-- DANH SÁCH PHÒNG ĐANG MỞ -->
+                <div style="margin-top:30px;">
+                    <h3 style="color:#a855f7;">🔥 Phòng đang mở</h3>
+                    <div id="room-list" style="margin-top:10px;
+                                display:flex;
+                                flex-direction:column;
+                                gap:10px;">
+                        <p style="opacity:0.6;">Đang tải danh sách phòng...</p>
+                    </div>
+                </div>
                 <div class="room-ui glass">
                     <h2><i class="fas fa-plus-circle"></i> Thiết lập trận đấu</h2>
                     <div class="setup-grid">
