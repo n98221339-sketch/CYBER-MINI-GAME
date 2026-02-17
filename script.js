@@ -11,6 +11,14 @@ const firebaseConfig = {
 
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
+    firebase.auth().signInAnonymously()
+        .then(() => {
+            console.log("Đã login anonymous");
+        })
+        .catch((error) => {
+            console.error("Lỗi đăng nhập:", error);
+        });
+
 }
 const database = firebase.database();
 console.log("Đã login anonymous");
