@@ -10,10 +10,15 @@ const firebaseConfig = {
 };
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const database = firebase.database();
-firebase.auth().signInAnonymously()
-    .catch((error) => {
-        console.error(error);
-    });
+firebase.auth().onAuthStateChanged(user => {
+    if (!user) {
+        firebase.auth().signInAnonymously()
+            .catch(error => console.error(error));
+    } else {
+        console.log("Đã login anonymous:", user.uid);
+    }
+});
+
 
 const GEMINI_API_KEY = "AIzaSyBMgN917Q2s8CpFX2kVQlDhfRjTC8gpsHU";
 
