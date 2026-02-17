@@ -20,6 +20,8 @@ let users = JSON.parse(localStorage.getItem('natsumi_users')) || {
 let currentUser = JSON.parse(localStorage.getItem('natsumi_current')) || null;
 let roomData = { code: "", players: [], mode: "bot" };
 let gameState = { lastWord: "", turn: "user", history: [] };
+let turnTimer = null;
+let turnTimeLeft = 60;
 
 // --- HỆ THỐNG XỬ LÝ NHẬP LIỆU ---
 function handleGameInput(e, type) {
@@ -59,50 +61,56 @@ async function sendGameAction(type) {
                 return showToast(`Phải bắt đầu bằng chữ "${lastPart.toUpperCase()}"!`);
             }
         }
-
-        addMessage("user", `[TỪ] ${word.toUpperCase()}`);
-        gameState.lastWord = word;
-        wordIn.value = "";
-        document.getElementById('current-target').innerText = word.toUpperCase();
-
         if (roomData.mode === 'bot') {
             document.getElementById('turn-info').innerText = "Bot đang nghĩ...";
             const botWord = await getBotResponse(word);
             processBotTurn(botWord);
+        } else if (roomData.mode === 'player') {
+
+            database.ref("rooms/" + roomData.code).once("value")
+                .then(snapshot => {
+
+                    const data = snapshot.val();
+                    if (data.turn !== currentUser.name) {
+                        return showToast("Chưa tới lượt bạn!");
+                    }
+
+                    database.ref("rooms/" + roomData.code).update({
+                        lastWord: word
+                    });
+
+                    gameState.lastWord = word;
+                    document.getElementById('current-target').innerText = word.toUpperCase();
+
+                    addMessage(currentUser.name, `[TỪ] ${word.toUpperCase()}`);
+
+                    nextTurn();
+                });
         }
     }
 }
 
 // --- HÀM HIỂN THỊ TIN NHẮN ---
 function addMessage(sender, text) {
+
+    const colors = [
+        "#ff0000", "#00ff00", "#00ffff",
+        "#ff00ff", "#ffff00", "#ff8800"
+    ];
+
+    const colorIndex =
+        sender.split("").reduce((a, b) => a + b.charCodeAt(0), 0) % colors.length;
+
+    const color = colors[colorIndex];
+
     const box = document.getElementById('game-messages');
+
     const msgDiv = document.createElement('div');
-    msgDiv.className = "msg-bubble"; // Nên thêm class này vào CSS để style đẹp hơn
+    msgDiv.style.margin = "8px 0";
 
-    // Inline style bổ sung
-    msgDiv.style.margin = "10px 0";
-    msgDiv.style.padding = "10px 15px";
-    msgDiv.style.borderRadius = "12px";
-    msgDiv.style.maxWidth = "80%";
-    msgDiv.style.width = "fit-content";
-    msgDiv.style.fontSize = "14px";
-    msgDiv.style.wordBreak = "break-all";
+    msgDiv.innerHTML =
+        `<b style="color:${color}">${sender}</b>: ${text}`;
 
-    if (sender === "user") {
-        msgDiv.style.background = "linear-gradient(90deg, #8a2be2, #4b0082)";
-        msgDiv.style.color = "white";
-        msgDiv.style.marginLeft = "auto";
-    } else if (sender === "bot") {
-        msgDiv.style.background = "#333";
-        msgDiv.style.color = "#00ffcc";
-        msgDiv.style.border = "1px solid #00ffcc";
-    } else {
-        msgDiv.style.background = "rgba(255,255,255,0.1)";
-        msgDiv.style.color = "#aaa";
-        msgDiv.style.margin = "10px auto";
-    }
-
-    msgDiv.innerText = text;
     box.appendChild(msgDiv);
     box.scrollTop = box.scrollHeight;
 }
@@ -182,12 +190,27 @@ function renderUI() {
 // --- QUẢN LÝ PHÒNG (FIX LỖI VÀO PHÒNG) ---
 function createRoom() {
     const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const mode = document.getElementById('game-mode').value;
+
     roomData.code = roomCode;
-    roomData.mode = document.getElementById('game-mode').value;
+    roomData.mode = mode;
+
+    // LƯU LÊN FIREBASE
+    database.ref("rooms/" + roomCode).set({
+        host: currentUser.name,
+        mode: mode,
+        players: {
+            [currentUser.name]: {
+                avatar: currentUser.avatar,
+                gold: currentUser.gold
+            }
+        }
+    });
 
     document.getElementById('display-room-code').innerText = roomCode;
     showSection('lobby');
-    updateLobbyUI();
+    listenLobby();
+
 }
 
 function joinRoom() {
@@ -199,14 +222,28 @@ function joinRoom() {
         return showToast("Vui lòng nhập đủ 6 ký tự mã phòng!");
     }
 
-    // Kiểm tra mã phòng (Ở bản offline này ta check với roomData hiện tại)
-    if (inputCode === roomData.code) {
-        showToast("Vào phòng thành công!");
-        showSection('lobby');
-        updateLobbyUI();
-    } else {
-        showToast("Mã phòng không chính xác hoặc không tồn tại!");
-    }
+    const roomRef = database.ref("rooms/" + inputCode);
+
+    roomRef.once("value").then(snapshot => {
+        if (snapshot.val() !== null) {
+
+
+            // THÊM NGƯỜI CHƠI VÀO ROOM
+            roomRef.child("players/" + currentUser.name).set({
+                avatar: currentUser.avatar,
+                gold: currentUser.gold
+            });
+
+            roomData.code = inputCode;
+            showToast("Vào phòng thành công!");
+            document.getElementById('display-room-code').innerText = inputCode;
+            showSection('lobby');
+            listenLobby();
+
+        } else {
+            showToast("Mã phòng không tồn tại!");
+        }
+    });
 }
 
 function updateLobbyUI() {
@@ -305,17 +342,151 @@ function triggerCountdown() {
         }
     }, 1000);
 }
-
 function startGame() {
-    gameState = { lastWord: "", turn: "user", history: [] };
-    document.getElementById('game-messages').innerHTML = "";
-    showSection('game-play');
-    addMessage("system", "Trận đấu bắt đầu! Mời bạn nhập từ đầu tiên.");
+    database.ref("rooms/" + roomData.code + "/players")
+        .once("value").then(snapshot => {
+
+            const players = Object.keys(snapshot.val());
+            const randomIndex = Math.floor(Math.random() * players.length);
+            const firstPlayer = players[randomIndex];
+
+            database.ref("rooms/" + roomData.code).update({
+                turn: firstPlayer,
+                lastWord: ""
+            });
+
+            showSection('game-play');
+
+            listenGameRealtime(); // ← BẮT BUỘC CÓ DÒNG NÀY
+        });
 }
+
 
 function saveAllData() {
     localStorage.setItem('natsumi_users', JSON.stringify(users));
     localStorage.setItem('natsumi_current', JSON.stringify(currentUser));
+}
+function listenLobby() {
+
+    database.ref("rooms/" + roomData.code + "/players")
+        .on("value", snapshot => {
+
+            const players = snapshot.val();
+            if (!players) return;
+
+            const list = document.getElementById("lobby-players");
+            list.innerHTML = "";
+
+            for (let name in players) {
+                list.innerHTML += `
+                <div style="background:rgba(255,255,255,0.05);
+                            padding:15px;border-radius:10px;
+                            display:flex;align-items:center;gap:15px;">
+                    <img src="${players[name].avatar}"
+                         style="width:50px;height:50px;border-radius:50%;">
+                    <div>
+                        <p style="margin:0;font-weight:bold;">${name}</p>
+                    </div>
+                </div>`;
+            }
+
+        });
+}
+
+function listenGameRealtime() {
+
+    database.ref("rooms/" + roomData.code).on("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        gameState.lastWord = data.lastWord || "";
+
+        document.getElementById("current-target").innerText =
+            data.lastWord || "MỜI RA TỪ";
+
+        document.getElementById("turn-info").innerText =
+            "Lượt của: " + data.turn;
+
+        if (data.turn === currentUser.name) {
+            startTurnTimer();
+        } else {
+            stopTurnTimer();
+        }
+    });
+}
+function startTurnTimer() {
+
+    turnTimeLeft = 60;
+
+    stopTurnTimer();
+
+    turnTimer = setInterval(() => {
+
+        turnTimeLeft--;
+
+        document.getElementById("turn-info").innerText =
+            "Lượt của bạn - Còn " + turnTimeLeft + "s";
+
+        if (turnTimeLeft <= 0) {
+            clearInterval(turnTimer);
+            skipTurn();
+        }
+
+    }, 1000);
+}
+
+function stopTurnTimer() {
+    if (turnTimer) clearInterval(turnTimer);
+}
+function skipTurn() {
+
+    database.ref("rooms/" + roomData.code)
+        .once("value").then(roomSnap => {
+
+            const room = roomSnap.val();
+            const currentTurn = room.turn;
+
+            database.ref("rooms/" + roomData.code + "/players")
+                .once("value").then(snapshot => {
+
+                    const players = Object.keys(snapshot.val());
+                    const currentIndex = players.indexOf(currentTurn);
+
+                    let nextIndex = (currentIndex + 1) % players.length;
+                    let nextPlayer = players[nextIndex];
+
+                    database.ref("rooms/" + roomData.code).update({
+                        turn: nextPlayer
+                    });
+
+                });
+        });
+}
+
+function nextTurn() {
+
+    database.ref("rooms/" + roomData.code + "/players")
+        .once("value").then(snapshot => {
+
+            const players = Object.keys(snapshot.val());
+
+            database.ref("rooms/" + roomData.code)
+                .once("value").then(snap => {
+
+                    const data = snap.val();
+                    const currentTurn = data.turn;
+
+                    const currentIndex = players.indexOf(currentTurn);
+                    let nextIndex = (currentIndex + 1) % players.length;
+                    let nextPlayer = players[nextIndex];
+
+                    database.ref("rooms/" + roomData.code).update({
+                        turn: nextPlayer
+                    });
+
+                });
+
+        });
 }
 
 window.onload = () => { if (currentUser) loginSuccess(); };
