@@ -1,23 +1,20 @@
 // 1. Firebase Config
 const firebaseConfig = {
-    apiKey: "AIza...",
+    apiKey: "AIzaSyDKBP6jaGk8g5I8-9FcRi3KQCjkDRGeGzk",
     authDomain: "cyberminigame.firebaseapp.com",
     databaseURL: "https://cyberminigame-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "cyberminigame",
-    storageBucket: "cyberminigame.appspot.com",
-    messagingSenderId: "...",
-    appId: "..."
+    storageBucket: "cyberminigame.firebasestorage.app",
+    messagingSenderId: "554941351234",
+    appId: "1:554941351234:web:42247ece048eb2f800f4db"
 };
-if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 const database = firebase.database();
-firebase.auth().onAuthStateChanged(user => {
-    if (!user) {
-        firebase.auth().signInAnonymously()
-            .catch(error => console.error(error));
-    } else {
-        console.log("Đã login anonymous:", user.uid);
-    }
-});
+console.log("Đã login anonymous");
+showToast("🟢 Đã kết nối Firebase!");
 
 
 const GEMINI_API_KEY = "AIzaSyBMgN917Q2s8CpFX2kVQlDhfRjTC8gpsHU";
@@ -200,20 +197,32 @@ function renderUI() {
 
 // --- QUẢN LÝ PHÒNG (FIX LỖI VÀO PHÒNG) ---
 function createRoom() {
-    const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const maxPlayers = document.getElementById("player-count").value;
+
+    const roomCode = generateRoomCode();
+    const playerName = currentUser.name;
 
     database.ref("rooms/" + roomCode).set({
-        maxPlayers: maxPlayers,
-        status: "waiting",
-        players: {}
+        maxPlayers: 10,
+        turn: "",
+        lastWord: "",
+        players: {
+            [playerName]: {
+                avatar: currentUser.avatar,
+                gold: currentUser.gold
+            }
+        }
     });
 
-    alert("Đã tạo phòng: " + roomCode);
+    roomData.code = roomCode;
+
+    showToast("Tạo phòng thành công!");
+
     document.getElementById('display-room-code').innerText = roomCode;
-    showSection('lobby');
-    listenLobby();
+
+    showSection('lobby');   // 👈 QUAN TRỌNG
+    listenLobby();          // 👈 QUAN TRỌNG
 }
+
 
 function joinRoom() {
     const inputs = document.querySelectorAll('.otp-input');
@@ -495,7 +504,6 @@ function nextTurn() {
         });
 }
 
-window.onload = () => { if (currentUser) loginSuccess(); };
 function listenRoomList() {
 
     database.ref("rooms").on("value", snapshot => {
@@ -562,7 +570,12 @@ function listenRoomList() {
     const roomListDiv = document.getElementById("room-list");
 
     database.ref("rooms").on("value", snapshot => {
-        roomListDiv.innerHTML = "";
+        const roomCodeEl = document.getElementById("roomCode");
+
+        if (roomCodeEl) {
+            roomCodeEl.innerHTML = code;
+        }
+
 
         if (!snapshot.exists()) {
             roomListDiv.innerHTML = "<p>Chưa có phòng nào</p>";
@@ -604,3 +617,63 @@ function joinRoomByCode(roomCode) {
 window.onload = function () {
     listenRoomList();
 };
+function listenRoomList() {
+
+    const roomListDiv = document.getElementById("room-list");
+
+    if (!roomListDiv) return; // CHỐNG LỖI NULL
+
+    database.ref("rooms").on("value", snapshot => {
+
+        roomListDiv.innerHTML = "";
+
+        if (!snapshot.exists()) {
+            roomListDiv.innerHTML = "<p>Chưa có phòng nào</p>";
+            return;
+        }
+
+        snapshot.forEach(child => {
+            const room = child.val();
+            const roomCode = child.key;
+
+            const div = document.createElement("div");
+            div.style.padding = "10px";
+            div.style.background = "#1f1f1f";
+            div.style.borderRadius = "8px";
+            div.style.cursor = "pointer";
+
+            div.innerHTML = `
+                <b>Phòng:</b> ${roomCode}<br>
+                Người chơi: ${Object.keys(room.players || {}).length}/${room.maxPlayers}
+            `;
+
+            div.onclick = () => {
+                joinRoomByCode(roomCode);
+            };
+
+            roomListDiv.appendChild(div);
+        });
+
+    });
+}
+function generateRoomCode() {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let code = "";
+
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    return code;
+}
+function showNotify(text) {
+    const box = document.getElementById("notifyBox");
+    if (!box) return;
+
+    box.innerText = text;
+    box.style.display = "block";
+
+    setTimeout(() => {
+        box.style.display = "none";
+    }, 2000);
+}
